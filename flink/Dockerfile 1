@@ -1,0 +1,5 @@
+FROM flink:1.18.0-scala_2.12-java11
+RUN wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.0.2-1.18/flink-sql-connector-kafka-3.0.2-1.18.jar && \
+    wget -P /opt/flink/lib https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-datagen/1.18.0/flink-connector-datagen-1.18.0.jar && \  
+    wget -P /opt/flink/plugins/s3 https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.18.0/flink-s3-fs-hadoop-1.18.0.jar && \
+    wget -P /opt/flink/lib https://github.com/knaufk/flink-faker/releases/download/v0.5.3/flink-faker-0.5.3.jar
