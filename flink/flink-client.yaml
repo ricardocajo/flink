@@ -46,15 +46,15 @@ spec:
             path: flink-conf.yaml
           - key: log4j-cli.properties
             path: log4j-cli.properties
-          - key: job1.py
-            path: job1.py
-          - key: job2.py
-            path: job2.py
-          - key: job3.py
-            path: job3.py
       - name: flink-sql-volume
         configMap:
           name: flink-client-config
           items:
           - key: demo-kafka-consumer.sql
             path: demo-kafka-consumer.sql
+          - key: job1.py
+            path: job1.py
+          - key: job2.py
+            path: job2.py
+          - key: job3.py
+            path: job3.py

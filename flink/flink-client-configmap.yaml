@@ -130,32 +130,38 @@ data:
     table_env.get_config().set("parallelism.default", "1")
 
     # Define your CREATE TABLE statements
-    create_table_alerts = """
-        CREATE TABLE alerts (
-          alert_id INT,
-          host STRING,
-          status STRING,
-          os_type STRING,
-          ts TIMESTAMP(3)
+    create_table_users_gen = """
+        CREATE TABLE users_gen (
+            user_id INT,
+            user_value DECIMAL(8,2),
+            user_name STRING,
+            user_time TIMESTAMP(3),
+            user_special BOOLEAN
         ) WITH (
-            'connector' = 'kafka',
-            'topic' = 'alerts',
-            'scan.startup.mode' = 'earliest-offset',
-            'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
-            'format' = 'json'
+            'connector' = 'datagen',
+            'fields.user_id.kind' = 'sequence',
+            'fields.user_id.start' = '1',
+            'fields.user_id.end' = '1000',
+            'number-of-rows' = '1000',
+            'fields.user_name.length' = '10',
+            'rows-per-second' = '10',
+            'fields.user_value.min' = '10.0',
+            'fields.user_value.max' = '100.0',
+            'fields.user_name.kind' = 'random',
+            'fields.user_special.kind' = 'random'
         );
     """
 
-    create_table_windows_sink = """
-        CREATE TABLE alerts_windows (
-          alert_id INT,
-          host STRING,
-          status STRING,
-          os_type STRING,
-          ts TIMESTAMP(3)
+    create_table_normal_users_sink = """
+        CREATE TABLE users (
+            user_id INT,
+            user_value DECIMAL(8,2),
+            user_name STRING,
+            user_time TIMESTAMP(3),
+            user_special BOOLEAN
         ) WITH (
             'connector' = 'kafka',
-            'topic' = 'alerts-windows',
+            'topic' = 'users',
             'scan.startup.mode' = 'earliest-offset',
             'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
             'format' = 'json'
@@ -163,22 +169,22 @@ data:
     """
 
     # Execute CREATE TABLE statements
-    table_env.execute_sql(create_table_alerts)
-    table_env.execute_sql(create_table_windows_sink)
+    table_env.execute_sql(create_table_users_gen)
+    table_env.execute_sql(create_table_normal_users_sink)
 
-    # Define your INSERT INTO query
+    # Define INSERT INTO query
     insert_query = """
-        INSERT INTO alerts_windows
-        SELECT alert_id, host, status, os_type, ts FROM alerts WHERE os_type = 'windows'
+      INSERT INTO users
+      SELECT user_id, user_value, user_name, user_time, user_special FROM users_gen WHERE user_special = false
     """
 
     # Execute the INSERT INTO query
     table_env.execute_sql(insert_query).wait()
   job2.py: |+
-    from pyflink.common import Types, WatermarkStrategy
+    from pyflink.common import Types
     from pyflink.datastream import StreamExecutionEnvironment
-    from pyflink.datastream.connectors.kafka import KafkaSource, KafkaSink, KafkaOffsetsInitializer, KafkaRecordSerializationSchema
-    from pyflink.datastream.formats.json import JsonRowDeserializationSchema, JsonRowSerializationSchema
+    from pyflink.datastream.connectors.kafka import KafkaSink, KafkaRecordSerializationSchema
+    from pyflink.datastream.formats.json import JsonRowSerializationSchema
     from pyflink.table.table_environment import StreamTableEnvironment
 
     # Create a StreamExecutionEnvironment
@@ -187,42 +193,51 @@ data:
     t_env = StreamTableEnvironment.create(env)
 
 
-    # Define the deserialization schema for Kafka consumer
-    row_type_info = Types.ROW_NAMED(['alert_id', 'host', 'status', 'os_type', 'ts'],
-                                    [Types.INT(), Types.STRING(), Types.STRING(), Types.STRING(), Types.STRING()])
-    json_deserialization_schema = JsonRowDeserializationSchema.builder().type_info(row_type_info).build()
+    t_env.execute_sql("""
+        CREATE TABLE messages_gen (
+            message_id INT,
+            message_body STRING,
+            message_time STRING,
+            message_level INT
+        ) WITH (
+            'connector' = 'datagen',
+            'fields.message_id.kind' = 'sequence',
+            'fields.message_id.start' = '1',
+            'fields.message_id.end' = '1000',
+            'number-of-rows' = '1000',
+            'fields.message_body.length' = '50',
+            'fields.message_body.kind' = 'random',
+            'rows-per-second' = '10',
+            'fields.message_level.min' = '1',
+            'fields.message_level.max' = '2'
+        );
+    """)
 
-    # Define the KafkaSource using the builder syntax
-    source = KafkaSource.builder() \
-        .set_bootstrap_servers("kafka-kafka-bootstrap:9092") \
-        .set_topics("alerts") \
-        .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
-        .set_value_only_deserializer(json_deserialization_schema) \
-        .build()  
-
-    # Add KafkaSource as a source to the environment
-    ds = env.from_source(source, WatermarkStrategy.no_watermarks(), "Kafka Source")
+    # Conversion between Table and DataStream
+    ds = t_env.to_append_stream(
+        t_env.from_path('messages_gen'),
+            Types.ROW_NAMED(['message_id', 'message_body', 'message_time', 'message_level'],
+                                [Types.INT(), Types.STRING(), Types.STRING(), Types.INT()])
+    )
 
 
-    # Filter records where "behavior" is equal to "pv1"
-    filtered_ds = ds.filter(lambda value: value['os_type'] == 'linux')
 
-    # Register the DataStream as a temporary table
-    #t_env.create_temporary_view("my_table", ds)
-    # Use SQL-like expressions to filter records
-    #filtered_table = t_env.sql_query("SELECT * FROM my_table WHERE os_type = 'linux'")
-    # Convert the result back to a DataStream
-    #filtered_ds = t_env.to_data_stream(filtered_table)
+    # Filter records
+    #filtered_ds = ds.filter(lambda value: value['message_level'] == 1)
+    filtered_ds = ds.filter(lambda value: print(value) or int(value['message_level']) == 1)
 
 
-    # Define the serialization schema for Kafka producer
+
+    # Define the schema for Kafka
+    row_type_info = Types.ROW_NAMED(['message_id', 'message_body', 'message_time', 'message_level'],
+                                    [Types.INT(), Types.STRING(), Types.STRING(), Types.INT()])
     json_serialization_schema = JsonRowSerializationSchema.builder().with_type_info(row_type_info).build()
 
     sink = KafkaSink.builder() \
         .set_bootstrap_servers("kafka-kafka-bootstrap:9092") \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
-                .set_topic("alerts-linux")
+                .set_topic("messages")
                 .set_value_serialization_schema(json_serialization_schema)
                 .build()
         ) \
@@ -236,34 +251,70 @@ data:
     env.execute()
   job3.py: |+
     from pyflink.table import EnvironmentSettings, TableEnvironment
-    from pyflink.table.expressions import col, call
 
     table_env = TableEnvironment.create(EnvironmentSettings.in_streaming_mode())
     table_env.get_config().set("parallelism.default", "1")
 
-    create_table_linux_sink = """
-        CREATE TABLE alerts_linux (
-          alert_id INT,
-          host STRING,
-          status STRING,
-          os_type STRING,
-          ts STRING
+    # Define CREATE TABLE statements
+    create_table_users = """
+        CREATE TABLE users (
+            user_id INT,
+            user_value DECIMAL(8,2),
+            user_name STRING,
+            user_time TIMESTAMP(3),
+            user_special BOOLEAN
         ) WITH (
             'connector' = 'kafka',
-            'topic' = 'alerts-linux',
+            'topic' = 'users',
             'scan.startup.mode' = 'earliest-offset',
             'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
             'format' = 'json'
         );
     """
-    table_env.execute_sql(create_table_linux_sink)
 
-    # Create the table from a sql query
-    table = table_env.sql_query("SELECT * FROM alerts_linux")
+    create_table_messages = """
+        CREATE TABLE messages (
+            message_id INT,
+            message_body STRING,
+            message_time STRING,
+            message_level INT
+        ) WITH (
+            'connector' = 'kafka',
+            'topic' = 'messages',
+            'scan.startup.mode' = 'earliest-offset',
+            'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
+            'format' = 'json'
+        );
+    """
 
-    result_table = table \
-        .group_by(col("alert_id"), col("os_type")) \
-        .select(col("alert_id"), col("os_type"), call("count", col("alert_id")).alias("_count_"))
+    create_table_results_sink = """
+        CREATE TABLE results (
+            user_id INT,
+            user_value DECIMAL(8,2),
+            message_id INT,
+            message_body STRING
+        ) WITH (
+            'connector' = 'kafka',
+            'topic' = 'results',
+            'scan.startup.mode' = 'earliest-offset',
+            'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
+            'format' = 'json'
+        );
+    """
 
+    # Execute CREATE TABLE statements
+    table_env.execute_sql(create_table_users)
+    table_env.execute_sql(create_table_messages)
+    table_env.execute_sql(create_table_results_sink)
 
-    result_table.execute().print()
+    # Define INSERT INTO query
+    insert_query = """
+        INSERT INTO results
+        SELECT u.user_id, u.user_value, m.message_id, m.message_body
+            FROM users AS u
+              JOIN messages AS m
+                ON u.user_id = m.message_id;
+    """
+
+    # Execute the INSERT INTO query
+    table_env.execute_sql(insert_query).wait()

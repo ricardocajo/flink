@@ -4,32 +4,38 @@ table_env = TableEnvironment.create(EnvironmentSettings.in_streaming_mode())
 table_env.get_config().set("parallelism.default", "1")
 
 # Define your CREATE TABLE statements
-create_table_alerts = """
-    CREATE TABLE alerts (
-      alert_id INT,
-      host STRING,
-      status STRING,
-      os_type STRING,
-      ts TIMESTAMP(3)
+create_table_users_gen = """
+    CREATE TABLE users_gen (
+        user_id INT,
+        user_value DECIMAL(8,2),
+        user_name STRING,
+        user_time TIMESTAMP(3),
+        user_special BOOLEAN
     ) WITH (
-        'connector' = 'kafka',
-        'topic' = 'alerts',
-        'scan.startup.mode' = 'earliest-offset',
-        'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
-        'format' = 'json'
+        'connector' = 'datagen',
+        'fields.user_id.kind' = 'sequence',
+        'fields.user_id.start' = '1',
+        'fields.user_id.end' = '1000',
+        'number-of-rows' = '1000',
+        'fields.user_name.length' = '10',
+        'rows-per-second' = '10',
+        'fields.user_value.min' = '10.0',
+        'fields.user_value.max' = '100.0',
+        'fields.user_name.kind' = 'random',
+        'fields.user_special.kind' = 'random'
     );
 """
 
-create_table_windows_sink = """
-    CREATE TABLE alerts_windows (
-      alert_id INT,
-      host STRING,
-      status STRING,
-      os_type STRING,
-      ts TIMESTAMP(3)
+create_table_normal_users_sink = """
+    CREATE TABLE users (
+        user_id INT,
+        user_value DECIMAL(8,2),
+        user_name STRING,
+        user_time TIMESTAMP(3),
+        user_special BOOLEAN
     ) WITH (
         'connector' = 'kafka',
-        'topic' = 'alerts-windows',
+        'topic' = 'users',
         'scan.startup.mode' = 'earliest-offset',
         'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
         'format' = 'json'
@@ -37,13 +43,13 @@ create_table_windows_sink = """
 """
 
 # Execute CREATE TABLE statements
-table_env.execute_sql(create_table_alerts)
-table_env.execute_sql(create_table_windows_sink)
+table_env.execute_sql(create_table_users_gen)
+table_env.execute_sql(create_table_normal_users_sink)
 
-# Define your INSERT INTO query
+# Define INSERT INTO query
 insert_query = """
-    INSERT INTO alerts_windows
-    SELECT alert_id, host, status, os_type, ts FROM alerts WHERE os_type = 'windows'
+    INSERT INTO users
+    SELECT user_id, user_value, user_name, user_time, user_special FROM users_gen WHERE user_special = false
 """
 
 # Execute the INSERT INTO query
