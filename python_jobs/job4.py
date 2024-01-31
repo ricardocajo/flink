@@ -3,7 +3,8 @@ from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.common import Types, WatermarkStrategy
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
 from pyflink.datastream.formats.json import JsonRowDeserializationSchema
-from pyflink.table.schema import Schema
+from pyflink.datastream.serialization import SimpleDeserializationSchema
+import json
 
 # Create a StreamExecutionEnvironment
 env = StreamExecutionEnvironment.get_execution_environment()
@@ -14,59 +15,41 @@ t_env = StreamTableEnvironment.create(env)
 # Define the schema for Kafka
 row_type_info = Types.ROW_NAMED(['user_id', 'item_id', 'category_id', 'behavior', 'ts', 'original_json'],
                                 [Types.STRING(), Types.STRING(), Types.STRING(), Types.STRING(), Types.STRING(), Types.STRING()])
-json_deserialization_schema = JsonRowDeserializationSchema.builder().type_info(row_type_info).ignore_parse_errors().build()
+#json_deserialization_schema = JsonRowDeserializationSchema.builder().type_info(row_type_info).ignore_parse_errors().build()
 
-# Custom JsonRowDeserializationSchema to handle parsing errors
-"""class CustomJsonRowDeserializationSchema(JsonRowDeserializationSchema):
+class CustomJsonDeserializationSchema(SimpleDeserializationSchema):
+    def __init__(self, row_type_info):
+        self.row_type_info = row_type_info
+
     def deserialize(self, message):
         try:
-            deserialized_data = super().deserialize(message)
-            
-             # Explicitly cast 'user_id' to string
-            deserialized_data['user_id'] = str(deserialized_data['user_id'])
-            deserialized_data['item_id'] = str(deserialized_data['item_id'])
-            deserialized_data['category_id'] = str(deserialized_data['category_id'])
-            # Add the 'original_json' field to the deserialized data
-            deserialized_data['original_json'] = None
-            
-            return deserialized_data
-        except Exception as e:
-            # Handle parsing errors (e.g., log the error or process the error differently)
-            print(f"Error deserializing record: {e}")
-            # Return the 'original_json' field along with other fields set to None
-            return {
-                'user_id': None,
-                'item_id': None,
-                'category_id': None,
-                'behavior': None,
-                'ts': None,
-                'original_json': message.decode('utf-8')
-            }
+            json_object = json.loads(message)
+            user_id = json_object.get('user_id', None)
+            item_id = json_object.get('item_id', None)
+            category_id = json_object.get('category_id', None)
+            behavior = json_object.get('behavior', None)
+            ts = json_object.get('ts', None)
 
+            return user_id, item_id, category_id, behavior, ts
+        except json.JSONDecodeError:
+            # Return None for malformed JSON
+            return None
 
-json_deserialization_schema = CustomJsonRowDeserializationSchema.builder().type_info(row_type_info).build()
-"""
+# Create a custom deserialization schema
+custom_json_deserialization_schema = CustomJsonDeserializationSchema(row_type_info)
+
 # Define the KafkaSource using the builder syntax
 source = KafkaSource.builder() \
-    .set_bootstrap_servers("kafka-kafka-bootstrap:9092") \
+    .set_bootstrap_servers("kafka-kafka-bootstrap:9095") \
     .set_topics("source") \
     .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
-    .set_value_only_deserializer(json_deserialization_schema) \
+    .set_value_only_deserializer(custom_json_deserialization_schema) \
     .build()
 
 ds = env.from_source(source, WatermarkStrategy.no_watermarks(), "Source")
 
-"""schema = Schema.new_builder() \
-    .column("user_id", "BIGINT") \
-    .column("item_id", "BIGINT") \
-    .column("category_id", "BIGINT") \
-    .column("behavior", "STRING") \
-    .column("ts", "TIMESTAMP(3)") \
-    .column("original_json", "STRING") \
-    .build()"""
-
 # interpret the insert-only DataStream as a Table
-source_table = t_env.from_data_stream(ds)
+source_table = t_env.from_data_stream(ds, custom_json_deserialization_schema)
 
 t_env.create_temporary_view("source", source_table)
 
@@ -81,7 +64,7 @@ create_table_valid_records = """
         'connector' = 'kafka',
         'topic' = 'sink',
         'scan.startup.mode' = 'earliest-offset',
-        'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
+        'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9095',
         'format' = 'json'
     );
 """
@@ -93,7 +76,7 @@ create_table_error_records = """
         'connector' = 'kafka',
         'topic' = 'sink_error',
         'scan.startup.mode' = 'earliest-offset',
-        'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9092',
+        'properties.bootstrap.servers' = 'kafka-kafka-bootstrap:9095',
         'format' = 'json'
     );
 """

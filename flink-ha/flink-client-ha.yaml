@@ -15,6 +15,7 @@ spec:
         app: flink
         component: client
     spec:
+      serviceAccountName: flink-ha
       imagePullSecrets:
         - name: gcr-json-key
       containers:
