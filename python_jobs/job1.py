@@ -3,7 +3,8 @@ from pyflink.table import EnvironmentSettings, TableEnvironment
 table_env = TableEnvironment.create(EnvironmentSettings.in_streaming_mode())
 table_env.get_config().set("parallelism.default", "1")
 
-# Define your CREATE TABLE statements
+
+# Define CREATE TABLE statements
 create_table_users_gen = """
     CREATE TABLE users_gen (
         user_id INT,
@@ -49,7 +50,7 @@ table_env.execute_sql(create_table_normal_users_sink)
 # Define INSERT INTO query
 insert_query = """
     INSERT INTO users
-    SELECT user_id, user_value, user_name, user_time, user_special FROM users_gen WHERE user_special = false
+    SELECT user_id, user_value, user_name, user_time, user_special FROM users_gen WHERE user_special = false AND user_value > 45.0
 """
 
 # Execute the INSERT INTO query

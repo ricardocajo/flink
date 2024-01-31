@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: flink-client
+  name: flink-client-ha
   namespace: flink
 spec:
   replicas: 1
@@ -40,23 +40,17 @@ spec:
       volumes:
       - name: flink-config-volume
         configMap:
-          name: flink-client-config
+          name: flink-client-config-ha
           items:
           - key: flink-conf.yaml
             path: flink-conf.yaml
           - key: log4j-cli.properties
             path: log4j-cli.properties
+          - key: job4.py
+            path: job4.py
       - name: flink-sql-volume
         configMap:
           name: flink-client-config
           items:
           - key: demo-kafka-consumer.sql
             path: demo-kafka-consumer.sql
-          - key: job1.py
-            path: job1.py
-          - key: job2.py
-            path: job2.py
-          - key: job3.py
-            path: job3.py
-          - key: job4.py
-            path: job4.py
